@@ -1,0 +1,9 @@
+[Unit]
+Description=Play a sound on desktop notifications
+
+[Service]
+ExecStart=%h/.local/bin/notification-sound-listener
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

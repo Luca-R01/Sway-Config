@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+SOUND="${1:-/usr/share/sounds/freedesktop/stereo/message.oga}"
+
+dbus-monitor --session "interface='org.freedesktop.Notifications',member='Notify'" 2>/dev/null \
+| while read -r line; do
+    # dbus-monitor stampa una riga con "member=Notify" per ogni notifica
+    if echo "$line" | grep -q "member=Notify"; then
+      pw-play "$SOUND" >/dev/null 2>&1
+    fi
+  done
