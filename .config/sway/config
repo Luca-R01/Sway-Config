@@ -27,7 +27,8 @@ set $C_URGENT #EF5350
 set $GTK_THEME Materia-dark-compact
 set $GTK_SCHEME prefer-dark
 set $ICON_THEME Obsidian
-set $CURSOR_THEME Terminus
+set $CURSOR_THEME Vanilla-DMZ-AA
+set $CURSOR_SIZE 24
 
 # App preferite
 set $TERM xdg-terminal-exec
@@ -49,18 +50,27 @@ set $WALLPAPER /usr/share/backgrounds/archlinux/geolanes.png
 exec_always systemctl --user import-environment $(env | cut -d= -f1)
 exec_always dbus-update-activation-environment --systemd --all
 
-# GTK / GNOME settings
-exec_always --no-startup-id gsettings set org.gnome.desktop.interface gtk-theme '$GTK_THEME'
-exec_always --no-startup-id gsettings set org.gnome.desktop.interface color-scheme '$GTK_SCHEME'
-exec_always --no-startup-id gsettings set org.gnome.desktop.interface icon-theme '$ICON_THEME'
-exec_always --no-startup-id gsettings set org.gnome.desktop.interface cursor-theme '$CURSOR_THEME'
-exec_always --no-startup-id gsettings set org.gnome.desktop.interface font-name '$FONT_GTK'
-exec_always --no-startup-id gsettings set org.gnome.desktop.wm.preferences button-layout ''
-exec_always --no-startup-id sh -c 'pkill -x xsettingsd 2>/dev/null || true; xsettingsd &'
+# Cursore
+seat seat0 xcursor_theme $CURSOR_THEME $CURSOR_SIZE
+
+# GTK THEMING 
+exec_always --no-startup-id env \
+  GTK_THEME="$GTK_THEME" \
+  GTK_SCHEME="$GTK_SCHEME" \
+  ICON_THEME="$ICON_THEME" \
+  CURSOR_THEME="$CURSOR_THEME" \
+  CURSOR_SIZE="$CURSOR_SIZE" \
+  FONT_GTK="$FONT_GTK" \
+  ~/.config/sway/apply-gtk-theme.sh
+
+exec_always --no-startup-id xsettingsd
+
+# Terminal for Nemo
 exec_always --no-startup-id gsettings set org.cinnamon.desktop.default-applications.terminal exec $TERM
 
 # Notifiche / servizi utente
 exec_always --no-startup-id 'systemctl --user start swaync'
+exec_always --no-startup-id 'systemctl --user start notification-sound-listener.service'
 exec --no-startup-id '/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1'
 exec --no-startup-id sh -lc 'gnome-keyring-daemon --start --components=secrets,ssh,pkcs11'
 
@@ -74,7 +84,7 @@ exec_always --no-startup-id sh -c 'pkill -x swayosd-server 2>/dev/null || true; 
 # Font globale (titoli finestre, ecc.)
 font $FONT_UI
 
-# Barra
+# SWAYBAR
 bar {
     position top
     height 28
@@ -103,9 +113,14 @@ gaps outer -5
 # Bordi
 default_border normal 0
 default_floating_border normal 3
+for_window [floating] border normal 3
+
+# Title bar
 title_align center
 for_window [title="."] title_format "<b>%app_id • %title</b>"
 for_window [shell="xwayland"] title_format "<b>%class</b> <small>[XWayland]</small> • <b>%title</b>"
+
+# Colore bordi
 client.focused $C_GREY_LIGHT $C_GREY_LIGHT $C_ACCENT $C_ACCENT $C_GREY_LIGHT
 client.focused_inactive $C_GREY_LIGHT $C_GREY_DARK $C_GREY_TEXT $C_GREY_TEXT $C_GREY_LIGHT
 client.unfocused $C_GREY_LIGHT $C_GREY_DARK $C_GREY_TEXT $C_GREY_TEXT $C_GREY_LIGHT
