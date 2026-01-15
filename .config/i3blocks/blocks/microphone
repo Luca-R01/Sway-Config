@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -u
+
+SRC='@DEFAULT_SOURCE@'
+
+# Azioni PRIMA dell'output (evita aggiornamento in ritardo)
+case "${BLOCK_BUTTON:-}" in
+  1) pactl set-source-mute "$SRC" toggle ;;     # click sinistro: mute
+  4) pactl set-source-volume "$SRC" +5% ;;      # scroll up: volume +
+  5) pactl set-source-volume "$SRC" -5% ;;      # scroll down: volume -
+esac
+
+# Stato mute
+MIC_MUTE=$(pactl get-source-mute "$SRC" 2>/dev/null | awk '{print $2}' | head -n1)
+
+# Volume: prendo la percentuale del primo canale (es. "55%")
+MIC_PERC=$(pactl get-source-volume "$SRC" 2>/dev/null \
+  | sed -n 's/.* \([0-9]\+%\).*/\1/p' | head -n1)
+
+# Fallback se pactl non risponde
+[[ -z "${MIC_PERC:-}" ]] && MIC_PERC="0%"
+
+if [[ "${MIC_MUTE:-yes}" == "no" ]]; then
+  COLOR="#FFFFFF"
+  OUT="MIC [${MIC_PERC}]"
+else
+  COLOR="#EF5350"
+  OUT="MIC [MUTE]"
+fi
+
+# i3blocks output
+echo "$OUT"
+echo ""
+echo "$COLOR"
+

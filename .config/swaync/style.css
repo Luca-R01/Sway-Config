@@ -1,0 +1,70 @@
+/* --- MINIMAL OPAQUE + ACCENT BORDER --- */
+@define-color cc-bg      #1E1E1E;
+@define-color noti-bg    #2C2C2C;
+@define-color border-col #383838;
+@define-color text-color #FFFFFF;
+@define-color text-sub   #AAAAAA;
+@define-color accent     #272727;
+
+/* Control Center */
+.control-center {
+  background: @cc-bg;
+  border: 3px solid @accent;
+  border-radius: 0px;
+}
+
+/* Popup notifications (floating) */
+.floating-notifications .notification {
+  background: @cc-bg;
+  border: 3px solid @accent;
+  border-radius: 0px;
+}
+
+.notification-row .notification {
+  background: @noti-bg;
+  border: 3px solid @accent;
+  border-radius: 0px;
+  padding: 3px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+}
+
+/* (opzionale ma carino) bordo accent al passaggio */
+.notification-row:hover .notification {
+  border-color: @accent;
+}
+
+/* Testi (minimal, stile “card”) */
+.summary { color: @text-color; font-weight: 700; font-size: 15px; }
+.body    { color: @text-sub;   font-size: 14px; margin-top: 4px; }
+.time    { color: @text-sub;   font-size: 11px; margin-right: 6px; }
+
+/* ------------------------------------------------------------------ */
+/* FIX: toast (floating) leggermente spostate a sinistra               */
+/* ------------------------------------------------------------------ */
+
+/* Reset di eventuali margini/padding del contenitore toast */
+.floating-notifications {
+  margin-right: 0px;
+  margin-left: 0px;
+  padding-right: 3px;
+  padding-left: 3px;
+}
+
+/* Neutralizza offset laterali su row/background/notification */
+.floating-notifications .notification-row,
+.floating-notifications .notification-row .notification-background,
+.floating-notifications .notification-row .notification-background .notification {
+  margin-right: 0px;
+  margin-left: 0px;
+}
+
+/* Gap voluto dal bordo destro (coerente con control center: 5px) */
+.floating-notifications .notification-row {
+  margin-right: 0px;
+}
+
+/* Evita che il timestamp crei “sbilanciamento” nei toast */
+.floating-notifications .time {
+  margin-right: 0px;
+}
+

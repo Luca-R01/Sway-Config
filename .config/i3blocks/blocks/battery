@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -u
+
+BAT="${BAT:-BAT0}"
+BASE="/sys/class/power_supply/$BAT"
+
+# Soglie (modifica qui)
+LOW_PERC=30
+CRIT_PERC=10
+
+# Rate limit notifiche (secondi)
+COOLDOWN=600
+STAMP_FILE="/tmp/i3blocks-battery-${BAT}.stamp"
+
+# Se non esiste, non stampare nulla
+[[ -r "$BASE/capacity" && -r "$BASE/status" ]] || exit 0
+
+read -r BAT_PERC < "$BASE/capacity"
+read -r BAT_STATUS < "$BASE/status"
+[[ "$BAT_PERC" =~ ^[0-9]+$ ]] || exit 0
+
+COLOR="#FFFFFF"
+PLUS=""
+
+if [[ "$BAT_STATUS" == "Full" ]]; then
+  COLOR="#C3E88D"
+elif [[ "$BAT_STATUS" == "Charging" ]]; then
+  COLOR="#F1FA8C"
+  PLUS="+"
+else
+  # Discharging / Not charging / Unknown → trattali come "non in carica"
+  if (( BAT_PERC <= 30 )); then
+    COLOR="#EF5350"
+  else
+    COLOR="#FFFFFF"
+  fi
+fi
+
+# ---- Notifica low battery con rate limit ----
+notify_low_battery() {
+  local level="$1"  # "Bassa" / "Critica"
+  local now last=0
+
+  now=$(date +%s)
+  [[ -r "$STAMP_FILE" ]] && read -r last < "$STAMP_FILE" || true
+
+  if (( now - last >= COOLDOWN )); then
+    printf '%s\n' "$now" > "$STAMP_FILE"
+    notify-send -u critical "Batteria $level" "$BAT_PERC% ($BAT_STATUS)"
+  fi
+}
+
+# Notifica solo se NON in carica e sotto soglia
+if [[ "$BAT_STATUS" != "Charging" && "$BAT_STATUS" != "Full" ]]; then
+  if (( BAT_PERC <= CRIT_PERC )); then
+    notify_low_battery "Critica"
+  elif (( BAT_PERC <= LOW_PERC )); then
+    notify_low_battery "Bassa"
+  fi
+fi
+
+# Output i3blocks 
+echo "BAT [${PLUS}${BAT_PERC}%]"
+echo ""
+echo "$COLOR"
+
+case "${BLOCK_BUTTON:-}" in
+  3) notify-send "$BAT:" "$BAT_PERC%, $BAT_STATUS" ;;
+esac
+

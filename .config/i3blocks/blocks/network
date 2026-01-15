@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+set -u
+
+# ==========================================================
+# i3blocks - Network status
+# - Mostra le interfacce "attive" (wifi/wired/vpn)
+# - Click sinistro: apre nmtui in un terminale (se possibile)
+# - Click destro: notify con dettagli (SSID, IPv4/IPv6, default dev)
+# - Colore rosso se offline, verde se online
+# ==========================================================
+
+# ------------------------
+# Helpers / utilità
+# ------------------------
+
+is_admin_up() {
+  # Controlla se l'interfaccia è amministrativamente "UP".
+  #
+  # Perché non usare solo /sys/.../operstate?
+  # - tun0/wg0 spesso hanno operstate=unknown, ma comunque flag UP e sono usabili.
+  # Qui quindi controlliamo i flag dell'interfaccia via `ip link` e cerchiamo "UP" tra "<...>".
+  ip -o link show dev "$1" 2>/dev/null | grep -q '<[^>]*UP[^>]*>'
+}
+
+has_carrier() {
+  # Per interfacce Ethernet (e molte virtuali) esiste /sys/class/net/<if>/carrier:
+  # - "1" = link fisico presente (cavo inserito / link up)
+  # - "0" = nessun link
+  #
+  # Per tunnel (tun/wg) spesso non esiste o non ha senso, quindi questa funzione
+  # è usata solo come indizio "wired link up".
+  [[ -r "/sys/class/net/$1/carrier" ]] && [[ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" == "1" ]]
+}
+
+is_wifi() {
+  # Determina se l'interfaccia è Wi-Fi verificando la presenza della directory "wireless"
+  # dentro /sys/class/net/<if>/wireless.
+  [[ -d "/sys/class/net/$1/wireless" ]]
+}
+
+is_vpn() {
+  # Heuristica semplice: considera VPN/tunnel le interfacce con nomi comuni.
+  # Esempi: tun0, tap0, wg0, vpn0, tun1...
+  #
+  # Se nella tua macchina hai nomi diversi (es. "tailscale0", "ppp0", "zt0"),
+  # puoi estendere questa regex.
+  [[ "$1" =~ ^(tun|tap|wg|vpn)[0-9]+$ ]]
+}
+
+get_ssid() {
+  # Recupera SSID corrente per una interfaccia Wi-Fi.
+  # `iw dev <if> link` mostra lo stato di associazione:
+  # - se associata, contiene una riga "SSID: <nome>"
+  # - se non associata, può dire "Not connected."
+  iw dev "$1" link 2>/dev/null | awk -F': ' '/SSID/ {print $2; exit}'
+}
+
+get_ipv4() {
+  # Recupera il primo indirizzo IPv4 assegnato all'interfaccia.
+  # - `ip -o -4 addr show dev <if>` stampa in formato "oneline"
+  # - estraiamo il campo con l'IP/CIDR e rimuoviamo la /mask
+  ip -o -4 addr show dev "$1" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1
+}
+
+get_ipv6() {
+  # Recupera il primo IPv6 "globale" (non link-local) assegnato all'interfaccia.
+  # - escludiamo fe80::/10 (link-local), che spesso c'è sempre e "sporca" l'info.
+  ip -o -6 addr show dev "$1" 2>/dev/null \
+    | awk '{print $4}' \
+    | cut -d/ -f1 \
+    | grep -v '^fe80:' \
+    | head -n1
+}
+
+default_dev() {
+  # Determina l'interfaccia usata per la default route IPv4.
+  # - `ip route show default` contiene tipicamente: "default via ... dev <if> ..."
+  # - cerchiamo la parola "dev" e prendiamo il token successivo
+  ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+}
+
+launch_nm() {
+  # Apre nmtui in un terminale, se disponibile xdg-terminal-exec (più "pulito" su i3),
+  # altrimenti prova a lanciare nmtui in background (meno affidabile senza terminale).
+  if command -v xdg-terminal-exec >/dev/null 2>&1; then
+    xdg-terminal-exec --title="nmtui-terminal" -- nmtui
+  else
+    (nmtui >/dev/null 2>&1 </dev/null &)
+  fi
+}
+
+# ------------------------
+# Click actions
+# ------------------------
+case "${BLOCK_BUTTON:-}" in
+  1) (launch_nm >/dev/null 2>&1 </dev/null &) ;;  # click sinistro: apri nmtui
+esac
+
+# Interfaccia di default route (se presente)
+DEF_DEV="$(default_dev || true)"
+
+# ------------------------
+# Scansione interfacce "attive"
+# ------------------------
+ACTIVE=()
+
+for IF in $(ls /sys/class/net 2>/dev/null); do
+  # Ignora loopback
+  [[ "$IF" == "lo" ]] && continue
+
+  # Considera solo interfacce amministrativamente UP
+  is_admin_up "$IF" || continue
+
+  # Leggi IP attuali (se presenti)
+  IPV4="$(get_ipv4 "$IF")"
+  IPV6="$(get_ipv6 "$IF")"
+
+  if is_wifi "$IF"; then
+    # Wi-Fi: attiva se associata (SSID presente) oppure se ha un IP (alcuni casi particolari)
+    SSID="$(get_ssid "$IF")"
+    [[ -n "${SSID:-}" || -n "${IPV4:-}" || -n "${IPV6:-}" ]] && ACTIVE+=("$IF")
+  else
+    # Wired/tunnel: attiva se:
+    # - ha carrier (wired tipico) oppure
+    # - ha un IP (utile per tun0/wg0 che non hanno carrier)
+    [[ "$(has_carrier "$IF" && echo 1 || echo 0)" == "1" || -n "${IPV4:-}" || -n "${IPV6:-}" ]] && ACTIVE+=("$IF")
+  fi
+done
+
+# ------------------------
+# Click destro: notify dettagliato
+# ------------------------
+if [[ "${BLOCK_BUTTON:-}" == "3" ]]; then
+  if ((${#ACTIVE[@]} == 0)); then
+    notify-send "Rete" "Offline"
+  else
+    MSG="Default: ${DEF_DEV:-<none>}"
+    for IF in "${ACTIVE[@]}"; do
+      IPV4="$(get_ipv4 "$IF")"
+      IPV6="$(get_ipv6 "$IF")"
+
+      if is_wifi "$IF"; then
+        SSID="$(get_ssid "$IF")"
+        MSG+=$'\n\n'"$IF (wifi): ${SSID:-<no ssid>}"$'\n'"IPv4: ${IPV4:-<none>}  IPv6: ${IPV6:-<none>}"
+      else
+        # Etichetta come vpn se matcha i nomi tipici, altrimenti "wired"
+        TYPE="wired"
+        is_vpn "$IF" && TYPE="vpn"
+        MSG+=$'\n\n'"$IF (${TYPE}):"$'\n'"IPv4: ${IPV4:-<none>}  IPv6: ${IPV6:-<none>}"
+      fi
+    done
+    notify-send "Rete" "$MSG"
+  fi
+fi
+
+# ------------------------
+# Output per i3blocks
+# ------------------------
+if ((${#ACTIVE[@]} == 0)); then
+  echo "NET [OFF]"
+  echo ""
+  echo "#EF5350"
+else
+  # Aggiunge "*" a:
+  # - interfaccia di default route
+  # - interfacce VPN riconosciute
+  #
+  # Nota: evito di duplicare "*" se già presente.
+  for i in "${!ACTIVE[@]}"; do
+    IF="${ACTIVE[$i]}"
+
+    mark=0
+    [[ -n "${DEF_DEV:-}" && "$IF" == "$DEF_DEV" ]] && mark=1
+    is_vpn "$IF" && mark=1
+
+    if (( mark == 1 )); then
+      [[ "$IF" != *"*" ]] && ACTIVE[$i]="${IF}*"
+    fi
+  done
+
+  echo "NET [${ACTIVE[*]}]"
+  echo ""
+  echo "#C3E88D"
+fi
+

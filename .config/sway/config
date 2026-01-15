@@ -1,0 +1,280 @@
+###################################################################################################
+#                                      SWAY CONFIG                                                #
+###################################################################################################
+
+###################################################################################################
+# 0) VARIABILI (MODIFICA QUI)                                                                     #
+###################################################################################################
+
+# Tasti
+set $MOD Mod4
+
+# Font
+set $FONT_UI pango:Terminus Bold 10
+set $FONT_GTK Terminus Bold 10
+
+# Colori
+set $C_BLACK #000000
+set $C_WHITE #ffffff
+set $C_ACCENT #8ab4f8
+set $C_GREY #1e1e1e
+set $C_GREY_LIGHT #272727
+set $C_GREY_DARK #111111
+set $C_GREY_TEXT #A9A9A9
+set $C_URGENT #EF5350
+
+# Tema / icone / cursore
+set $GTK_THEME Materia-dark-compact
+set $GTK_SCHEME prefer-dark
+set $ICON_THEME Obsidian
+set $CURSOR_THEME Terminus
+
+# App preferite
+set $TERM xdg-terminal-exec
+set $FILEMANAGER nemo
+set $MENU wofi --show drun -I
+set $LOCK swaylock -C $HOME/.config/sway/swaylock
+
+# Status bar
+set $STATUS_CMD i3blocks
+
+# Wallpaper
+set $WALLPAPER /usr/share/backgrounds/archlinux/geolanes.png
+
+###################################################################################################
+# 1) AMBIENTE / AUTOSTART                                                                         #
+###################################################################################################
+
+# Esporta variabili della sessione a systemd --user
+exec_always systemctl --user import-environment $(env | cut -d= -f1)
+exec_always dbus-update-activation-environment --systemd --all
+
+# GTK / GNOME settings
+exec_always --no-startup-id gsettings set org.gnome.desktop.interface gtk-theme '$GTK_THEME'
+exec_always --no-startup-id gsettings set org.gnome.desktop.interface color-scheme '$GTK_SCHEME'
+exec_always --no-startup-id gsettings set org.gnome.desktop.interface icon-theme '$ICON_THEME'
+exec_always --no-startup-id gsettings set org.gnome.desktop.interface cursor-theme '$CURSOR_THEME'
+exec_always --no-startup-id gsettings set org.gnome.desktop.interface font-name '$FONT_GTK'
+exec_always --no-startup-id gsettings set org.gnome.desktop.wm.preferences button-layout ''
+exec_always --no-startup-id sh -c 'pkill -x xsettingsd 2>/dev/null || true; xsettingsd &'
+exec_always --no-startup-id gsettings set org.cinnamon.desktop.default-applications.terminal exec $TERM
+
+# Notifiche / servizi utente
+exec_always --no-startup-id 'systemctl --user start swaync'
+exec --no-startup-id '/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1'
+exec --no-startup-id sh -lc 'gnome-keyring-daemon --start --components=secrets,ssh,pkcs11'
+
+# OSD server
+exec_always --no-startup-id sh -c 'pkill -x swayosd-server 2>/dev/null || true; swayosd-server &'
+
+###################################################################################################
+# 2) ASPETTO (FONT / BAR / BORDI)                                                                 #
+###################################################################################################
+
+# Font globale (titoli finestre, ecc.)
+font $FONT_UI
+
+# Barra
+bar {
+    position top
+    height 28
+    font $FONT_UI
+    icon_theme $ICON_THEME
+    status_command $STATUS_CMD
+    colors {
+        statusline $C_WHITE
+        background $C_BLACK
+        inactive_workspace $C_BLACK $C_BLACK $C_WHITE
+        active_workspace $C_BLACK $C_BLACK $C_WHITE
+        focused_workspace $C_BLACK $C_BLACK $C_ACCENT
+        urgent_workspace $C_BLACK $C_BLACK $C_URGENT
+    }
+    tray_output none
+}
+
+# Layout di default
+workspace_layout tabbed
+
+# Gap
+smart_gaps on
+gaps inner 5
+gaps outer -5
+
+# Bordi
+default_border normal 0
+default_floating_border normal 3
+title_align center
+for_window [title="."] title_format "<b>%app_id • %title</b>"
+for_window [shell="xwayland"] title_format "<b>%class</b> <small>[XWayland]</small> • <b>%title</b>"
+client.focused $C_GREY_LIGHT $C_GREY_LIGHT $C_ACCENT $C_ACCENT $C_GREY_LIGHT
+client.focused_inactive $C_GREY_LIGHT $C_GREY_DARK $C_GREY_TEXT $C_GREY_TEXT $C_GREY_LIGHT
+client.unfocused $C_GREY_LIGHT $C_GREY_DARK $C_GREY_TEXT $C_GREY_TEXT $C_GREY_LIGHT
+client.urgent $C_GREY_LIGHT $C_GREY_DARK $C_URGENT $C_URGENT $C_GREY_LIGHT
+
+###################################################################################################
+# 3) OUTPUT (MONITOR / WALLPAPER)                                                                 #
+###################################################################################################
+
+output * bg $WALLPAPER fill
+
+bindswitch lid:on  output eDP-1 disable
+bindswitch lid:off output eDP-1 enable
+
+###################################################################################################
+# 4) INPUT (MOUSE / TASTIERA / TOUCHPAD / GESTURE)                                                #
+###################################################################################################
+
+input "type:pointer" {
+    accel_profile flat
+    pointer_accel 0.5
+}
+
+input type:keyboard {
+    xkb_layout "it"
+}
+input 12815:20480:Evision_RGB_Keyboard {
+    xkb_layout "us"
+    xkb_variant "intl"
+}
+
+input "type:touchpad" {
+    natural_scroll enabled
+}
+
+bindgesture swipe:right workspace prev
+bindgesture swipe:left  workspace next
+
+###################################################################################################
+# 5) IDLE / LOCK                                                                                  #
+###################################################################################################
+
+exec --no-startup-id swayidle -w \
+    timeout 300 '$LOCK' \
+    timeout 600 'swaymsg "output * disable"' \
+    resume 'swaymsg "output * enable"' \
+    before-sleep '$LOCK' \
+    after-resume 'swaymsg "output * enable"'
+
+###################################################################################################
+# 6) KEYBIND (SESSIONE / LAUNCH / MEDIA / DISPLAY)                                                #
+###################################################################################################
+
+# Launcher / file manager / terminal
+bindsym $MOD+Return exec $MENU
+bindsym $MOD+T exec $TERM
+bindsym XF86Search exec $MENU
+bindsym XF86Explorer exec $FILEMANAGER
+bindsym XF86Display exec nwg-displays
+bindsym XF86Tools exec 'xed $HOME/.config/sway/config'
+
+# Lock / reload / screenshot
+bindsym $MOD+l exec $LOCK
+bindsym $MOD+r reload
+bindsym Print exec sh -c 'dir="$HOME/Screenshots"; mkdir -p "$dir"; file="$dir/screenshot_$(date +%F_%H-%M-%S).png"; grim -g "$(slurp)" - | tee "$file" | wl-copy -t image/png && notify-send "Screenshot salvato" "$file"'
+
+# Menu spegnimento
+bindsym $MOD+Escape exec swaynag -m "Seleziona un'opzione:" \
+  -b "$(printf "%-20s" "Logout")" "swaymsg exit" \
+  -b "$(printf "%-20s" "Spegni")" "systemctl poweroff" \
+  -b "$(printf "%-20s" "Riavvia")" "systemctl reboot" \
+  -b "$(printf "%-20s" "Sospendi")" "pkill swaynag && systemctl suspend" \
+  -b "$(printf "%-20s" "Blocca")" "pkill swaynag && $LOCK" \
+  -b "$(printf "%-20s" "Ricarica Sway")" "pkill swaynag && swaymsg reload" \
+  --background "#000000" \
+  --border "#1e1e1e" \
+  --button-background "#1e1e1e" \
+  --text "#FFFFFF" \
+  --button-text "#FFFFFF" \
+  --border-bottom "000000" \
+  --font "Terminus Bold 10"
+
+# Media / OSD
+bindsym XF86AudioRaiseVolume exec swayosd-client --output-volume raise --max-volume 100 && pkill -RTMIN+1 i3blocks
+bindsym XF86AudioLowerVolume exec swayosd-client --output-volume lower --max-volume 100 && pkill -RTMIN+1 i3blocks
+bindsym XF86AudioMute exec swayosd-client --output-volume mute-toggle && pkill -RTMIN+2 i3blocks        
+bindsym XF86AudioMicMute exec swayosd-client --input-volume mute-toggle && pkill -RTMIN+2 i3blocks        
+
+bindsym XF86MonBrightnessUp exec swayosd-client --brightness +5 && pkill -RTMIN+3 i3blocks
+bindsym XF86MonBrightnessDown exec swayosd-client --brightness -5 && pkill -RTMIN+3 i3blocks
+
+bindsym XF86AudioPlay exec swayosd-client --playerctl play-pause
+bindsym XF86AudioNext exec swayosd-client --playerctl next
+bindsym XF86AudioPrev exec playerctl previous
+
+###################################################################################################
+# 7) FINESTRE (FOCUS / MOVE / RESIZE)                                                             #
+###################################################################################################
+
+bindsym alt+f4         kill
+bindsym $MOD+Shift+q   kill
+bindsym $MOD+Shift+f   fullscreen
+floating_modifier $MOD normal
+
+# Focus
+bindsym $MOD+Left  focus left
+bindsym $MOD+Down  focus down
+bindsym $MOD+Up    focus up
+bindsym $MOD+Right focus right
+
+# Move
+bindsym $MOD+Shift+Left  move left
+bindsym $MOD+Shift+Down  move down
+bindsym $MOD+Shift+Up    move up
+bindsym $MOD+Shift+Right move right
+
+# Floating toggle
+bindsym $MOD+Shift+space floating toggle
+
+# Resize mode
+mode "resize" {
+    bindsym Left  resize shrink width  10px
+    bindsym Down  resize grow   height 10px
+    bindsym Up    resize shrink height 10px
+    bindsym Right resize grow   width  10px
+
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+}
+bindsym $MOD+Shift+r mode "resize"
+
+###################################################################################################
+# 8) WORKSPACES                                                                                   #
+###################################################################################################
+
+bindsym $MOD+1 workspace number 1
+bindsym $MOD+2 workspace number 2
+bindsym $MOD+3 workspace number 3
+bindsym $MOD+4 workspace number 4
+bindsym $MOD+5 workspace number 5
+bindsym $MOD+6 workspace number 6
+bindsym $MOD+7 workspace number 7
+bindsym $MOD+8 workspace number 8
+bindsym $MOD+9 workspace number 9
+bindsym $MOD+0 workspace number 10
+
+bindsym $MOD+Shift+1 move container to workspace number 1
+bindsym $MOD+Shift+2 move container to workspace number 2
+bindsym $MOD+Shift+3 move container to workspace number 3
+bindsym $MOD+Shift+4 move container to workspace number 4
+bindsym $MOD+Shift+5 move container to workspace number 5
+bindsym $MOD+Shift+6 move container to workspace number 6
+bindsym $MOD+Shift+7 move container to workspace number 7
+bindsym $MOD+Shift+8 move container to workspace number 8
+bindsym $MOD+Shift+9 move container to workspace number 9
+bindsym $MOD+Shift+0 move container to workspace number 10
+
+###################################################################################################
+# 9) Clipboard Manager                                                                            #
+###################################################################################################
+
+exec wl-paste --type text  --watch cliphist store --daemon
+exec wl-paste --type image --watch cliphist store --daemon
+
+bindsym $MOD+v exec sh -lc 'cliphist list | wofi --dmenu | cliphist decode | wl-copy'
+bindsym $MOD+Shift+v exec sh -lc 'cliphist wipe && notify-send "Clipboard" "Cronologia svuotata correttamente"'
+
+###################################################################################################
+# 10) INCLUDE                                                                                     #
+###################################################################################################
+
+include /etc/sway/config.d/*

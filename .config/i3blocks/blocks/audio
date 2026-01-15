@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -u
+
+SINK='@DEFAULT_AUDIO_SINK@'
+
+case "${BLOCK_BUTTON:-}" in
+  1) wpctl set-mute "$SINK" toggle ;;
+  3) command -v pavucontrol >/dev/null 2>&1 && (pavucontrol >/dev/null 2>&1 &) ;;
+  4) wpctl set-volume "$SINK" 5%+ --limit=1.0 ;;
+  5) wpctl set-volume "$SINK" 5%- ;;
+esac
+
+VOL_LINE=$(wpctl get-volume "$SINK" 2>/dev/null || true)
+[[ -z "$VOL_LINE" ]] && exit 0
+
+AUDIO_PERC=$(awk '{print int($2 * 100)}' <<<"$VOL_LINE")
+IS_MUTED=$(grep -q '\[MUTED\]' <<<"$VOL_LINE" && echo 1 || echo 0)
+
+if [[ "$IS_MUTED" == "1" ]]; then
+  COLOR="#EF5350"
+  OUT="VOL [MUTE]"
+else
+  COLOR="#FFFFFF"
+  OUT="VOL [${AUDIO_PERC}%]"
+fi
+
+echo "$OUT"
+echo ""
+echo "$COLOR"
+

@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -u
+
+get_status() {
+  bluetoothctl show 2>/dev/null | awk -F': ' '/Powered:/ {print $2; exit}'
+}
+
+# Azioni PRIMA dell'output
+case "${BLOCK_BUTTON:-}" in
+  1)
+    STATUS=$(get_status)
+    if [[ "${STATUS:-no}" == "no" ]]; then
+      bluetoothctl power on  >/dev/null 2>&1 && notify-send "Bluetooth" "Attivato"
+    else
+      bluetoothctl power off >/dev/null 2>&1 && notify-send "Bluetooth" "Disattivato"
+    fi
+    ;;
+  3)
+    command -v blueman-manager >/dev/null 2>&1 && (blueman-manager >/dev/null 2>&1 &)
+    ;;
+esac
+
+# Stato aggiornato
+STATUS=$(get_status)
+
+if [[ "${STATUS:-no}" == "yes" ]]; then
+  COLOR="#FFFFFF"
+  OUT="BT [ON]"
+else
+  COLOR="#EF5350"
+  OUT="BT [OFF]"
+fi
+
+echo "$OUT"
+echo ""
+echo "$COLOR"
+

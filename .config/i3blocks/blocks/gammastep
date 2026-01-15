@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -u
+
+WARM_K=3000
+NORM_K=6500
+
+STATE_FILE="/tmp/i3blocks-gammastep.state"
+PID_NAME="gammastep"
+
+start_gammastep() {
+  local k="$1"
+  # riavvia pulito
+  pkill -x "$PID_NAME" >/dev/null 2>&1 || true
+  sleep 0.2
+  gammastep -P -O "$k" >/dev/null 2>&1 &
+}
+
+# Stato desiderato (warm/norm). Default: norm
+MODE="norm"
+[[ -r "$STATE_FILE" ]] && read -r MODE < "$STATE_FILE" || true
+[[ "$MODE" != "warm" && "$MODE" != "norm" ]] && MODE="norm"
+
+# Click sinistro: toggle modalità
+if [[ "${BLOCK_BUTTON:-0}" -eq 1 ]]; then
+  if [[ "$MODE" == "warm" ]]; then
+    MODE="norm"
+  else
+    MODE="warm"
+  fi
+  printf '%s\n' "$MODE" > "$STATE_FILE"
+  # Applica subito la modalità scelta
+  if [[ "$MODE" == "warm" ]]; then
+    start_gammastep "$WARM_K"
+  else
+    start_gammastep "$NORM_K"
+  fi
+fi
+
+# Assicura che gammastep sia sempre attivo (anche dopo reboot/crash)
+if ! pgrep -x "$PID_NAME" >/dev/null 2>&1; then
+  if [[ "$MODE" == "warm" ]]; then
+    start_gammastep "$WARM_K"
+  else
+    start_gammastep "$NORM_K"
+  fi
+fi
+
+# Output i3blocks (senza icone)
+if [[ "$MODE" == "warm" ]]; then
+  echo "CT [${WARM_K}K]"
+  echo ""
+  echo "#FFD6A3"
+else
+  echo "CT [${NORM_K}K]"
+  echo ""
+  echo "#FFFFFF"
+fi
+

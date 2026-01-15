@@ -1,0 +1,38 @@
+# swaylock_config
+
+# Colori dell'indicatore di blocco schermo
+inside-color=121212
+ring-color=1e1e1e
+line-color=1e1e1e
+separator-color=383c4a
+text-color=FFFFFF
+key-hl-color=8ab4f8
+bs-hl-color=bf616a
+caps-lock-bs-hl-color=8ab4f8
+caps-lock-key-hl-color=8ab4f8
+inside-clear-color=121212
+ring-clear-color=1e1e1e
+line-clear-color=1e1e1e
+text-clear-color=FFFFFF 
+inside-ver-color=8ab4f8
+ring-ver-color=8ab4f8
+line-ver-color=8ab4f8
+text-ver-color=383c4a
+inside-wrong-color=404552
+ring-wrong-color=bf616a
+line-wrong-color=bf616a
+text-wrong-color=FFFFFF
+text-caps-lock-color=FFFFFF
+indicator-radius=100
+font=Terminus
+image=/usr/share/backgrounds/archlinux/geolanes.png 
+show-keyboard-layout
+show-failed-attempts
+daemonize
+
+clock
+indicator
+datestr=%a %d %b %Y
+timestr=%H:%M
+#screenshots
+effect-blur=7x5

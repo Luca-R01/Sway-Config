@@ -1,0 +1,73 @@
+# i3blocks configuration file
+#
+# The i3blocks man page describes the usage of the binary,
+# and its website describes the configuration:
+#
+#     https://vivien.github.io/i3blocks
+
+
+# Global properties
+separator=false
+separator_block_width=10
+command=$HOME/.config/i3blocks/blocks/$BLOCK_NAME
+
+[separator]
+full_text= 
+color=#363636
+
+[pacman-updates]
+interval=1800
+signal=4
+
+[separator]
+full_text= 
+color=#363636
+
+[gammastep]
+interval=5
+
+[separator]
+full_text= 
+color=#363636
+
+[microphone]
+interval=1
+signal=2
+
+[separator]
+full_text= 
+color=#363636
+
+[audio]
+interval=1
+signal=1
+
+[separator]
+full_text= 
+color=#363636
+
+[bluetooth]
+interval=5
+
+[separator]
+full_text= 
+color=#363636
+
+[network]
+interval=5 
+
+[separator]
+full_text= 
+color=#363636
+
+[battery]
+interval=5
+
+[separator]
+full_text= 
+color=#363636
+
+[time]
+color=#8ab4f8
+interval=1
+

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -u
+
+refresh() { pkill -x -SIGRTMIN+4 i3blocks 2>/dev/null || true; }
+
+case "${BLOCK_BUTTON:-}" in
+  1)
+    (xdg-terminal-exec --title="system update-terminal" -- bash -lc \
+      'sudo pacman -Syu; pkill -x -SIGRTMIN+4 i3blocks' \
+      >/dev/null 2>&1 </dev/null &) ;;
+  3)
+    refresh
+    notify-send "Aggiornamenti" "Ricerca aggiornamenti..."
+    ;;
+esac
+
+# se checkupdates non esiste, mostra errore
+if ! command -v checkupdates >/dev/null 2>&1; then
+  echo "UPD [?]"
+  echo ""
+  echo "#EF5350"
+  exit 0
+fi
+
+OUT=$(checkupdates 2>&1)
+
+# Errori espliciti
+if grep -qE '(^|\s)ERROR:|==>\s*ERROR:' <<<"$OUT"; then
+  echo "UPD [?]"
+  echo ""
+  echo "#EF5350"
+  exit 0
+fi
+
+# Nessun aggiornamento
+if [[ -z "${OUT//[[:space:]]/}" ]]; then
+  echo "UPD [0]"
+  echo ""
+  echo "#C3E88D"
+  exit 0
+fi
+
+# Aggiornamenti presenti -> conta righe non vuote
+UPDATES=$(printf '%s\n' "$OUT" | sed '/^\s*$/d' | wc -l | tr -d ' ')
+
+echo "UPD [${UPDATES}]"
+echo ""
+echo "#FFFFFF"
+

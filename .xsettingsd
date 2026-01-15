@@ -1,0 +1,5 @@
+Net/ThemeName "Materia-dark-compact"
+Net/IconThemeName "Obsidian"
+Net/CursorThemeName "Terminus"
+Gtk/FontName "Terminus 10"
+Gtk/ColorScheme "prefer-dark"

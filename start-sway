@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# =========================================
+# start-sway: avvia Sway con env vars + log
+# =========================================
+
+# Log sicuro in /tmp: nome unico + permessi solo utente
+umask 077
+LOGFILE="$(mktemp -p /tmp sway-$(id -un)-$(date +%Y%m%d_%H%M%S)-XXXXXX.log)"
+LATEST_LINK="/tmp/sway-$(id -un)-latest.log"
+ln -sf "$LOGFILE" "$LATEST_LINK"
+
+# Esponi il path del log come variabile d'ambiente
+export SWAY_LOG_FILE="$LOGFILE"
+# (opzionale) scorciatoia stabile al "latest"
+export SWAY_LOG_LATEST="$LATEST_LINK"
+
+# ---- Environment ----
+
+# Firefox
+export MOZ_ENABLE_WAYLAND=1
+export MOZ_DBUS_REMOTE=1
+
+# GTK
+export GTK_THEME="Materia-dark-compact"
+
+# Qt
+export QT_QPA_PLATFORM="wayland;xcb"
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+export QT_STYLE_OVERRIDE="kvantum"
+
+# Wayland / toolkits
+export _JAVA_AWT_WM_NONREPARENTING=1
+export SDL_VIDEODRIVER="wayland,x11"
+export CLUTTER_BACKEND="wayland"
+
+# (consigliate in generale)
+export XDG_SESSION_TYPE="wayland"
+export XDG_CURRENT_DESKTOP="sway"
+export XDG_SESSION_DESKTOP="sway"
+export WLR_DRM_NO_ATOMIC=1
+
+# ---- Avvio ----
+{
+  echo "== start-sway: $(date -Is) =="
+  echo "user: $(id -un) uid: $(id -u)"
+  echo "tty: $(tty 2>/dev/null || echo n/a)"
+  echo "log: $SWAY_LOG_FILE"
+  echo "latest: $SWAY_LOG_LATEST"
+  echo
+} >>"$LOGFILE"
+
+# Avvio "silenzioso": stdout/stderr nel log
+# -d = debug log (molto verboso). Se vuoi meno log, togli -d.
+exec sway >> "$LOGFILE" 2>&1
