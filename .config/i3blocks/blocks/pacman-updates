@@ -1,49 +1,79 @@
 #!/usr/bin/env bash
 set -u
 
-refresh() { pkill -x -SIGRTMIN+4 i3blocks 2>/dev/null || true; }
+# =========================================================
+# SCRIPT: system-updates.sh
+# DESCRIZIONE: Controlla aggiornamenti pendenti tramite checkupdates
+#              - Click sinistro: apre terminale per aggiornare (pacman -Syu)
+#              - Click destro: forza il rinfresco dello script
+# DIPENDENZE: bash, pacman-contrib, libnotify, xdg-terminal-exec
+# =========================================================
 
-case "${BLOCK_BUTTON:-}" in
-  1)
-    (xdg-terminal-exec --title="system update-terminal" -- bash -lc \
-      'sudo pacman -Syu; pkill -x -SIGRTMIN+4 i3blocks' \
-      >/dev/null 2>&1 </dev/null &) ;;
-  3)
-    refresh
-    notify-send "Aggiornamenti" "Ricerca aggiornamenti..."
-    ;;
+# --- CONFIGURAZIONE ---
+COLOR_CLEAN="#C3E88D"   # Sistema aggiornato
+COLOR_PENDING="#FFFFFF" # Aggiornamenti disponibili
+COLOR_ERROR="#EF5350"   # Errore o checkupdates mancante
+
+# Segnale RTMIN per i3blocks (corrisponde a quello nel config di i3blocks)
+SIGNAL=4
+
+# --- HELPERS ---
+
+# Invia il segnale di refresh a i3blocks
+refresh_i3blocks() {
+    pkill -x -SIGRTMIN+"$SIGNAL" i3blocks 2>/dev/null || true
+}
+
+# --- AZIONI (Click) ---
+
+case "${BLOCK_BUTTON:-0}" in
+    1) # Click Sinistro: Aggiorna sistema in un nuovo terminale
+        (xdg-terminal-exec --title="system update-terminal" -- bash -lc \
+          'sudo pacman -Syu; pkill -x -SIGRTMIN+'"$SIGNAL"' i3blocks' \
+          >/dev/null 2>&1 </dev/null &) 
+        ;;
+    3) # Click Destro: Rinfresco manuale e notifica
+        refresh_i3blocks
+        notify-send "Aggiornamenti" "Ricerca in corso..."
+        ;;
 esac
 
-# se checkupdates non esiste, mostra errore
+# --- LOGICA DI RILEVAMENTO ---
+
+# 1. Controllo esistenza comando
 if ! command -v checkupdates >/dev/null 2>&1; then
-  echo "UPD [?]"
-  echo ""
-  echo "#EF5350"
-  exit 0
+    echo "UPD [?]"
+    echo "?"
+    echo "$COLOR_ERROR"
+    exit 0
 fi
 
-OUT=$(checkupdates 2>&1)
+# 2. Esecuzione checkupdates
+OUT=$(checkupdates 2>&1 || true)
 
-# Errori espliciti
+# 3. Gestione Errori espliciti del comando
 if grep -qE '(^|\s)ERROR:|==>\s*ERROR:' <<<"$OUT"; then
-  echo "UPD [?]"
-  echo ""
-  echo "#EF5350"
-  exit 0
+    echo "UPD [?]"
+    echo "ERR"
+    echo "$COLOR_ERROR"
+    exit 0
 fi
 
-# Nessun aggiornamento
+# 4. Elaborazione risultati
 if [[ -z "${OUT//[[:space:]]/}" ]]; then
-  echo "UPD [0]"
-  echo ""
-  echo "#C3E88D"
-  exit 0
+    # Nessun aggiornamento
+    TEXT="UPD [0]"
+    SHORT="0"
+    COLOR="$COLOR_CLEAN"
+else
+    # Conta le righe (numero di pacchetti)
+    COUNT=$(printf '%s\n' "$OUT" | sed '/^\s*$/d' | wc -l | tr -d ' ')
+    TEXT="UPD [${COUNT}]"
+    SHORT="${COUNT}"
+    COLOR="$COLOR_PENDING"
 fi
 
-# Aggiornamenti presenti -> conta righe non vuote
-UPDATES=$(printf '%s\n' "$OUT" | sed '/^\s*$/d' | wc -l | tr -d ' ')
-
-echo "UPD [${UPDATES}]"
-echo ""
-echo "#FFFFFF"
-
+# --- OUTPUT I3BLOCKS ---
+echo "$TEXT"    # Full text
+echo "$SHORT"   # Short text
+echo "$COLOR"   # Color

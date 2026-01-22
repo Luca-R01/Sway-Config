@@ -1,37 +1,61 @@
 #!/usr/bin/env bash
 set -u
 
+# =========================================================
+# SCRIPT: bluetooth-manager.sh
+# DESCRIZIONE: Monitora e controlla lo stato del Bluetooth
+#              - Click sinistro: Toggle Power (On/Off)
+#              - Click destro: Apre Blueman Manager (se installato)
+# DIPENDENZE: bash, bluetoothctl, libnotify, blueman-manager
+# =========================================================
+
+# --- CONFIGURAZIONE ---
+COLOR_ON="#FFFFFF"
+COLOR_OFF="#EF5350"
+
+# --- HELPERS ---
+
+# Ottiene lo stato attuale (yes/no)
 get_status() {
-  bluetoothctl show 2>/dev/null | awk -F': ' '/Powered:/ {print $2; exit}'
+    bluetoothctl show 2>/dev/null | awk -F': ' '/Powered:/ {print $2; exit}'
 }
 
-# Azioni PRIMA dell'output
-case "${BLOCK_BUTTON:-}" in
-  1)
-    STATUS=$(get_status)
-    if [[ "${STATUS:-no}" == "no" ]]; then
-      bluetoothctl power on  >/dev/null 2>&1 && notify-send "Bluetooth" "Attivato"
-    else
-      bluetoothctl power off >/dev/null 2>&1 && notify-send "Bluetooth" "Disattivato"
-    fi
-    ;;
-  3)
-    command -v blueman-manager >/dev/null 2>&1 && (blueman-manager >/dev/null 2>&1 &)
-    ;;
+# --- AZIONI (Click) ---
+
+case "${BLOCK_BUTTON:-0}" in
+    1) # Click Sinistro: Toggle Power
+        CURRENT_STATUS=$(get_status)
+        if [[ "${CURRENT_STATUS:-no}" == "no" ]]; then
+            bluetoothctl power on >/dev/null 2>&1
+            notify-send "Bluetooth" "Dispositivo Attivato"
+        else
+            bluetoothctl power off >/dev/null 2>&1
+            notify-send "Bluetooth" "Dispositivo Disattivato"
+        fi
+        ;;
+    3) # Click Destro: Interfaccia GUI
+        if command -v blueman-manager >/dev/null 2>&1; then
+            (blueman-manager >/dev/null 2>&1 &)
+        fi
+        ;;
 esac
 
-# Stato aggiornato
+# --- LOGICA DI OUTPUT ---
+
+# Recuperiamo lo stato aggiornato (necessario dopo un eventuale click)
 STATUS=$(get_status)
 
 if [[ "${STATUS:-no}" == "yes" ]]; then
-  COLOR="#FFFFFF"
-  OUT="BT [ON]"
+    COLOR="$COLOR_ON"
+    TEXT="BT [ON]"
+    SHORT="ON"
 else
-  COLOR="#EF5350"
-  OUT="BT [OFF]"
+    COLOR="$COLOR_OFF"
+    TEXT="BT [OFF]"
+    SHORT="OFF"
 fi
 
-echo "$OUT"
-echo ""
-echo "$COLOR"
-
+# --- OUTPUT I3BLOCKS ---
+echo "$TEXT"    # Full text
+echo "$SHORT"   # Short text
+echo "$COLOR"   # Color

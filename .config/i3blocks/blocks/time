@@ -1,12 +1,31 @@
 #!/usr/bin/env bash
 set -u
 
-# Output
-echo "$(date +'%a %d %b %Y  %H:%M')" | tr 'a-z' 'A-Z'
+# =========================================================
+# SCRIPT: clock-calendar.sh
+# DESCRIZIONE: Visualizza data e ora correnti in maiuscolo.
+#              Click sinistro apre il centro notifiche swaync.
+# DIPENDENZE: bash, coreutils (date), swaync
+# =========================================================
 
-case "${BLOCK_BUTTON:-}" in
-  1)
-    swaync-client -t >/dev/null 2>&1 &
-    ;;
+# --- CONFIGURAZIONE ---
+# Formato data: Sab 22 Gen 2026  10:15
+DATE_FMT="%a %d %b %Y  %H:%M"
+
+# --- LOGICA ---
+# Otteniamo la data e usiamo l'espansione Bash ${var^^} 
+# per rendere tutto maiuscolo senza usare 'tr'.
+RAW_DATE=$(date +"$DATE_FMT")
+UPPER_DATE="${RAW_DATE^^}"
+
+# --- AZIONI (Click) ---
+case "${BLOCK_BUTTON:-0}" in
+    1) 
+        # Click sinistro: Toggle swaync
+        swaync-client -t >/dev/null 2>&1 & 
+        ;;
 esac
 
+# --- OUTPUT I3BLOCKS ---
+echo "$UPPER_DATE"  # Full text
+echo "$UPPER_DATE"  # Short text

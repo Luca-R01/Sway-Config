@@ -1,30 +1,58 @@
 #!/usr/bin/env bash
 set -u
 
-SINK='@DEFAULT_AUDIO_SINK@'
+# =========================================================
+# SCRIPT: volume-pipewire.sh
+# DESCRIZIONE: Gestione audio tramite WirePlumber (wpctl)
+#              - Click sinistro: Mute/Unmute
+#              - Click destro: Apre pavucontrol
+#              - Rotella su/giù: Volume +/- 5%
+# DIPENDENZE: bash, wireplumber, pavucontrol
+# =========================================================
 
-case "${BLOCK_BUTTON:-}" in
-  1) wpctl set-mute "$SINK" toggle ;;
-  3) command -v pavucontrol >/dev/null 2>&1 && (pavucontrol >/dev/null 2>&1 &) ;;
-  4) wpctl set-volume "$SINK" 5%+ --limit=1.0 ;;
-  5) wpctl set-volume "$SINK" 5%- ;;
+# --- CONFIGURAZIONE ---
+SINK='@DEFAULT_AUDIO_SINK@'
+VOL_STEP="5%"
+VOL_LIMIT="1.0" # Limita il volume al 100%
+
+COLOR_NORMAL="#FFFFFF"
+COLOR_MUTE="#EF5350"
+
+# --- AZIONI (Click e Scroll) ---
+# Nota: i3blocks usa 4 per Scroll Up e 5 per Scroll Down
+case "${BLOCK_BUTTON:-0}" in
+    1) wpctl set-mute "$SINK" toggle ;;
+    3) command -v pavucontrol >/dev/null 2>&1 && (pavucontrol >/dev/null 2>&1 &) ;;
+    4) wpctl set-volume "$SINK" "$VOL_STEP"+ --limit="$VOL_LIMIT" ;;
+    5) wpctl set-volume "$SINK" "$VOL_STEP"- ;;
 esac
 
+# --- LOGICA DI RILEVAMENTO ---
+
+# Esempio output wpctl: "Volume: 0.45 [MUTED]" oppure "Volume: 0.45"
 VOL_LINE=$(wpctl get-volume "$SINK" 2>/dev/null || true)
+
+# Uscita di sicurezza se il sink non risponde
 [[ -z "$VOL_LINE" ]] && exit 0
 
-AUDIO_PERC=$(awk '{print int($2 * 100)}' <<<"$VOL_LINE")
-IS_MUTED=$(grep -q '\[MUTED\]' <<<"$VOL_LINE" && echo 1 || echo 0)
+# Estrazione dati tramite awk
+# $2 è il valore decimale (es: 0.45), check per la stringa [MUTED]
+AUDIO_PERC=$(awk '{print int($2 * 100)}' <<< "$VOL_LINE")
+IS_MUTED=$(grep -q '\[MUTED\]' <<< "$VOL_LINE" && echo 1 || echo 0)
+
+# --- DETERMINAZIONE OUTPUT ---
 
 if [[ "$IS_MUTED" == "1" ]]; then
-  COLOR="#EF5350"
-  OUT="VOL [MUTE]"
+    COLOR="$COLOR_MUTE"
+    TEXT="VOL [MUTE]"
+    SHORT="MUT"
 else
-  COLOR="#FFFFFF"
-  OUT="VOL [${AUDIO_PERC}%]"
+    COLOR="$COLOR_NORMAL"
+    TEXT="VOL [${AUDIO_PERC}%]"
+    SHORT="${AUDIO_PERC}%"
 fi
 
-echo "$OUT"
-echo ""
-echo "$COLOR"
-
+# --- OUTPUT I3BLOCKS ---
+echo "$TEXT"    # Full text
+echo "$SHORT"   # Short text
+echo "$COLOR"   # Color

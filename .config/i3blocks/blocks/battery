@@ -1,276 +1,195 @@
 #!/usr/bin/env bash
 set -u
 
-# ============================================================
-# i3blocks battery (sysfs) + low/critical notify + right-click details
-# - Output leggero ad ogni refresh
-# - Info dettagliate SOLO con click destro (BLOCK_BUTTON=3)
-# ============================================================
+# =========================================================
+# SCRIPT: battery-monitor.sh
+# DESCRIZIONE: Monitor batteria completo (sysfs + upower fallback)
+#              - Output leggero per i3blocks
+#              - Notifiche low/crit con rate-limiting
+#              - Dettagli estesi completi su Click Destro
+# DIPENDENZE: bash, awk, libnotify, upower
+# =========================================================
 
-# ----------------------------
-# Config
-# ----------------------------
+# --- CONFIGURAZIONE ---
 BAT="${BAT:-BAT0}"
-BASE="/sys/class/power_supply/$BAT"
+BAT_PATH="/sys/class/power_supply/$BAT"
 
 LOW_PERC=30
 CRIT_PERC=10
-
-COOLDOWN=600
+NOTIFICATION_COOLDOWN=600
 STAMP_FILE="/tmp/i3blocks-battery-${BAT}.stamp"
 
-# ----------------------------
-# Guard
-# ----------------------------
-[[ -r "$BASE/capacity" && -r "$BASE/status" ]] || exit 0
+# Colori
+C_FULL="#C3E88D"        # Verde (Batteria carica)
+C_CHARGING="#F1FA8C"    # Giallo (Batteria in carica)
+C_LOW="#EF5350"         # Rosso (Batteria scarica)
+C_NORMAL="#FFFFFF"      # Bianco (Normale)
 
-read -r BAT_PERC < "$BASE/capacity"
-read -r BAT_STATUS < "$BASE/status"
-[[ "$BAT_PERC" =~ ^[0-9]+$ ]] || exit 0
+# --- GUARD ---
+[[ -r "$BAT_PATH/capacity" && -r "$BAT_PATH/status" ]] || exit 0
 
-# ============================================================
-# Helpers (piccoli, riusabili)
-# ============================================================
+# --- HELPERS ---
 
-# Legge un sysfs file se esiste, altrimenti vuoto
+# Legge sysfs in modo sicuro
 _read_sysfs() {
-  local f="$1"
-  [[ -r "$f" ]] && cat "$f" || true
+    local f="$1"
+    [[ -r "$f" ]] && cat "$f" || true
 }
 
 # Converte micro-unità -> unità (µWh->Wh, µW->W, µV->V, µA->A)
 _u_to_unit() {
-  local micro="$1"
-  local div="$2"
-  awk -v x="$micro" -v d="$div" 'BEGIN{ if(x==""||x=="0"){exit 1} printf "%.2f", x/d }'
+    local micro="$1"
+    local div="$2"
+    awk -v x="$micro" -v d="$div" 'BEGIN{ if(x==""||x=="0"){exit 1} printf "%.2f", x/d }'
 }
 
-# Minuti -> "Hh Mm"
+# Formatta minuti in "Hh Mm"
 _fmt_hm() {
-  local mins="$1"
-  if [[ -z "$mins" || "$mins" == "0" ]]; then
-    echo "n/a"
-    return
-  fi
-  awk -v m="$mins" 'BEGIN{
-    h=int(m/60); r=int(m%60);
-    if(h>0) printf "%dh %dm", h, r; else printf "%dm", r;
-  }'
+    local mins="$1"
+    if [[ -z "$mins" || "$mins" == "0" ]]; then echo "n/a"; return; fi
+    awk -v m="$mins" 'BEGIN{ h=int(m/60); r=int(m%60); if(h>0) printf "%dh %dm", h, r; else printf "%dm", r; }'
 }
 
-# Calcola minuti da (energia µWh) e (potenza µW)
-# minuti = (µWh/µW)*60
+# Calcola minuti da energia e potenza
 _calc_minutes() {
-  local e_uwh="$1"
-  local p_uw="$2"
-  awk -v e="$e_uwh" -v p="$p_uw" 'BEGIN{
-    if(e==""||p==""||p<=0){exit 1}
-    printf "%.0f", (e/p)*60
-  }'
+    local e_uwh="$1" p_uw="$2"
+    awk -v e="$e_uwh" -v p="$p_uw" 'BEGIN{ if(e==""||p==""||p<=0){exit 1} printf "%.0f", (e/p)*60 }'
 }
 
-# ============================================================
-# Metodi (logica)
-# ============================================================
-
-# ---- Notifica low battery con rate limit ----
+# Notifica di sistema con rate limit
 notify_low_battery() {
-  local level="$1"  # "Bassa" / "Critica"
-  local now last=0
-
-  now=$(date +%s)
-  [[ -r "$STAMP_FILE" ]] && read -r last < "$STAMP_FILE" || true
-
-  if (( now - last >= COOLDOWN )); then
-    printf '%s\n' "$now" > "$STAMP_FILE"
-    notify-send -u critical "Batteria $level" "$BAT_PERC% ($BAT_STATUS)"
-  fi
+    local level="$1"
+    local now last=0
+    now=$(date +%s)
+    [[ -r "$STAMP_FILE" ]] && read -r last < "$STAMP_FILE" || true
+    if (( now - last >= NOTIFICATION_COOLDOWN )); then
+        printf '%s\n' "$now" > "$STAMP_FILE"
+        notify-send -u critical "Batteria $level" "$BAT_PERC% ($BAT_STATUS)"
+    fi
 }
 
-# ---- Click destro: notifica dettagliata (solo qui letture extra) ----
+# Notifica Dettagliata (Logica Completa Originale)
 notify_detailed() {
-  local cap="$BAT_PERC"
-  local status="$BAT_STATUS"
+    local cap="$BAT_PERC"
+    local status="$BAT_STATUS"
 
-  # --- Letture extra (sysfs) ---
-  local power_now voltage_now current_now
-  local energy_now energy_full energy_full_design
-  local charge_now charge_full charge_full_design
-  local manufacturer model_name serial_number technology
+    # --- Letture extra (sysfs) ---
+    local power_now voltage_now current_now energy_now energy_full energy_full_design
+    local charge_now charge_full charge_full_design manufacturer model_name serial_number technology
 
-  power_now=$(_read_sysfs "$BASE/power_now")                 # µW
-  voltage_now=$(_read_sysfs "$BASE/voltage_now")             # µV
-  current_now=$(_read_sysfs "$BASE/current_now")             # µA
+    power_now=$(_read_sysfs "$BAT_PATH/power_now")
+    voltage_now=$(_read_sysfs "$BAT_PATH/voltage_now")
+    current_now=$(_read_sysfs "$BAT_PATH/current_now")
+    energy_now=$(_read_sysfs "$BAT_PATH/energy_now")
+    energy_full=$(_read_sysfs "$BAT_PATH/energy_full")
+    energy_full_design=$(_read_sysfs "$BAT_PATH/energy_full_design")
+    charge_now=$(_read_sysfs "$BAT_PATH/charge_now")
+    charge_full=$(_read_sysfs "$BAT_PATH/charge_full")
+    charge_full_design=$(_read_sysfs "$BAT_PATH/charge_full_design")
+    manufacturer=$(_read_sysfs "$BAT_PATH/manufacturer")
+    model_name=$(_read_sysfs "$BAT_PATH/model_name")
+    serial_number=$(_read_sysfs "$BAT_PATH/serial_number")
+    technology=$(_read_sysfs "$BAT_PATH/technology")
 
-  energy_now=$(_read_sysfs "$BASE/energy_now")               # µWh
-  energy_full=$(_read_sysfs "$BASE/energy_full")             # µWh
-  energy_full_design=$(_read_sysfs "$BASE/energy_full_design") # µWh
-
-  # Alcuni driver espongono charge_* (µAh) invece di energy_*
-  charge_now=$(_read_sysfs "$BASE/charge_now")
-  charge_full=$(_read_sysfs "$BASE/charge_full")
-  charge_full_design=$(_read_sysfs "$BASE/charge_full_design")
-
-  manufacturer=$(_read_sysfs "$BASE/manufacturer")
-  model_name=$(_read_sysfs "$BASE/model_name")
-  serial_number=$(_read_sysfs "$BASE/serial_number")
-  technology=$(_read_sysfs "$BASE/technology")
-
-  # Se power_now manca, prova a stimarlo da current*voltage:
-  # (µA * µV) / 1e6 = µW
-  if [[ -z "${power_now:-}" || "${power_now:-0}" == "0" ]]; then
-    if [[ -n "${current_now:-}" && -n "${voltage_now:-}" ]]; then
-      power_now=$(
-        awk -v c="$current_now" -v v="$voltage_now" 'BEGIN{
-          if(c==""||v==""){exit 1}
-          printf "%.0f", (c*v)/1000000
-        }' 2>/dev/null || true
-      )
+    # Stima potenza se mancante
+    if [[ -z "${power_now:-}" || "${power_now:-0}" == "0" ]]; then
+        if [[ -n "${current_now:-}" && -n "${voltage_now:-}" ]]; then
+            power_now=$(awk -v c="$current_now" -v v="$voltage_now" 'BEGIN{if(c==""||v==""){exit 1} printf "%.0f", (c*v)/1000000}' 2>/dev/null || true)
+        fi
     fi
-  fi
 
-  # --- Formattazioni base ---
-  local power_w volt_v curr_a
-  power_w=$(_u_to_unit "${power_now:-}" 1000000 2>/dev/null || echo "")
-  volt_v=$(_u_to_unit "${voltage_now:-}" 1000000 2>/dev/null || echo "")
-  curr_a=$(_u_to_unit "${current_now:-}" 1000000 2>/dev/null || echo "")
+    # Formattazioni
+    local power_w volt_v curr_a
+    power_w=$(_u_to_unit "${power_now:-}" 1000000 2>/dev/null || echo "")
+    volt_v=$(_u_to_unit "${voltage_now:-}" 1000000 2>/dev/null || echo "")
+    curr_a=$(_u_to_unit "${current_now:-}" 1000000 2>/dev/null || echo "")
 
-  # --- Energia e Health (preferisci energy_*, fallback charge_*) ---
-  local now_wh full_wh design_wh health_pct
-  now_wh=""; full_wh=""; design_wh=""; health_pct=""
-
-  if [[ -n "${energy_full:-}" && -n "${energy_full_design:-}" && "${energy_full_design:-0}" != "0" ]]; then
-    now_wh=$(_u_to_unit "${energy_now:-}" 1000000 2>/dev/null || echo "")
-    full_wh=$(_u_to_unit "$energy_full" 1000000 2>/dev/null || echo "")
-    design_wh=$(_u_to_unit "$energy_full_design" 1000000 2>/dev/null || echo "")
-    health_pct=$(
-      awk -v f="$energy_full" -v d="$energy_full_design" 'BEGIN{
-        if(f==""||d==""||d<=0) exit 1;
-        printf "%.0f", (f/d)*100
-      }' 2>/dev/null || true
-    )
-  elif [[ -n "${charge_full:-}" && -n "${charge_full_design:-}" && "${charge_full_design:-0}" != "0" ]]; then
-    # Non convertiamo Ah->Wh senza tensione nominale, ma health % si può calcolare.
-    health_pct=$(
-      awk -v f="$charge_full" -v d="$charge_full_design" 'BEGIN{
-        if(f==""||d==""||d<=0) exit 1;
-        printf "%.0f", (f/d)*100
-      }' 2>/dev/null || true
-    )
-  fi
-
-  # --- Stime tempo (se abbiamo energy_* e power_now) ---
-  local tte ttf
-  tte=""; ttf=""
-
-  if [[ "$status" != "Charging" && "$status" != "Full" ]]; then
-    if [[ -n "${energy_now:-}" && -n "${power_now:-}" && "${power_now:-0}" != "0" ]]; then
-      local mins
-      mins=$(_calc_minutes "$energy_now" "$power_now" 2>/dev/null || true)
-      tte=$(_fmt_hm "${mins:-}")
+    # Salute e Energia
+    local now_wh="" full_wh="" design_wh="" health_pct=""
+    if [[ -n "${energy_full:-}" && -n "${energy_full_design:-}" && "${energy_full_design:-0}" != "0" ]]; then
+        now_wh=$(_u_to_unit "${energy_now:-}" 1000000 2>/dev/null || echo "")
+        full_wh=$(_u_to_unit "$energy_full" 1000000 2>/dev/null || echo "")
+        design_wh=$(_u_to_unit "$energy_full_design" 1000000 2>/dev/null || echo "")
+        health_pct=$(awk -v f="$energy_full" -v d="$energy_full_design" 'BEGIN{if(f==""||d==""||d<=0) exit 1; printf "%.0f", (f/d)*100}' 2>/dev/null || true)
+    elif [[ -n "${charge_full:-}" && -n "${charge_full_design:-}" && "${charge_full_design:-0}" != "0" ]]; then
+        health_pct=$(awk -v f="$charge_full" -v d="$charge_full_design" 'BEGIN{if(f==""||d==""||d<=0) exit 1; printf "%.0f", (f/d)*100}' 2>/dev/null || true)
     fi
-  else
-    if [[ -n "${energy_full:-}" && -n "${energy_now:-}" && -n "${power_now:-}" && "${power_now:-0}" != "0" ]]; then
-      local tofull mins
-      tofull=$(
-        awk -v f="$energy_full" -v n="$energy_now" 'BEGIN{
-          if(f==""||n=="") exit 1;
-          x=f-n; if(x<0) x=0; printf "%.0f", x
-        }' 2>/dev/null || true
-      )
-      mins=$(_calc_minutes "${tofull:-}" "$power_now" 2>/dev/null || true)
-      ttf=$(_fmt_hm "${mins:-}")
+
+    # Stime Tempo Residuo
+    local tte="" ttf=""
+    if [[ "$status" != "Charging" && "$status" != "Full" ]]; then
+        if [[ -n "${energy_now:-}" && -n "${power_now:-}" && "${power_now:-0}" != "0" ]]; then
+            local mins=$(_calc_minutes "$energy_now" "$power_now" 2>/dev/null || true)
+            tte=$(_fmt_hm "${mins:-}")
+        fi
+    else
+        if [[ -n "${energy_full:-}" && -n "${energy_now:-}" && -n "${power_now:-}" && "${power_now:-0}" != "0" ]]; then
+            local tofull=$(awk -v f="$energy_full" -v n="$energy_now" 'BEGIN{if(f==""||n=="") exit 1; x=f-n; if(x<0) x=0; printf "%.0f", x}' 2>/dev/null || true)
+            local mins=$(_calc_minutes "${tofull:-}" "$power_now" 2>/dev/null || true)
+            ttf=$(_fmt_hm "${mins:-}")
+        fi
     fi
-  fi
 
-  # --- Fallback upower (solo click destro) ---
-  local up_line=""
-  if command -v upower >/dev/null 2>&1; then
-    local bat_dev
-    bat_dev=$(upower -e 2>/dev/null | grep -m1 -E 'battery|BAT' || true)
-    if [[ -n "$bat_dev" ]]; then
-      up_line=$(
-        upower -i "$bat_dev" 2>/dev/null | awk '
-          /energy-rate|time to empty|time to full|capacity|model|vendor|serial/ {
-            gsub(/^[ \t]+/, "", $0); print
-          }' | head -n 12 | tr '\n' '; '
-      )
+    # Fallback Upower
+    local up_line=""
+    if command -v upower >/dev/null 2>&1; then
+        local bat_dev=$(upower -e 2>/dev/null | grep -m1 -E 'battery|BAT' || true)
+        if [[ -n "$bat_dev" ]]; then
+            up_line=$(upower -i "$bat_dev" 2>/dev/null | awk '/energy-rate|time to empty|time to full|capacity|model|vendor|serial/ {gsub(/^[ \t]+/, "", $0); print}' | head -n 12 | tr '\n' '; ')
+        fi
     fi
-  fi
 
-  # --- Corpo notifica (multi-line) ---
-  local body=""
-  body+="Stato: $status\n"
-  body+="Carica: ${cap}%\n"
+    # Costruzione Corpo Notifica
+    local body=""
+    body+="Stato: $status\nCarica: ${cap}%\n"
+    [[ -n "$power_w" ]] && body+="Consumo: ${power_w} W\n"
+    [[ -n "$volt_v"  ]] && body+="Voltaggio: ${volt_v} V\n"
+    [[ -n "$curr_a"  ]] && body+="Corrente: ${curr_a} A\n"
+    [[ -n "$now_wh"  ]] && body+="Energia: ${now_wh} Wh\n"
+    [[ -n "$full_wh" ]] && body+="Full: ${full_wh} Wh\n"
+    [[ -n design_wh ]] && body+="Design: ${design_wh} Wh\n"
+    [[ -n "$health_pct" ]] && body+="Health: ${health_pct}%\n"
+    [[ -n "$technology"  ]] && body+="Tecnologia: ${technology}\n"
+    [[ -n "$manufacturer" ]] && body+="Produttore: ${manufacturer}\n"
+    [[ -n "$model_name"   ]] && body+="Modello: ${model_name}\n"
+    [[ -n "$serial_number" ]] && body+="Seriale: ${serial_number}\n"
+    [[ -n "$tte" && "$tte" != "n/a" ]] && body+="Tempo a 0%: ${tte}\n"
+    [[ -n "$ttf" && "$ttf" != "n/a" ]] && body+="Tempo al 100%: ${ttf}\n"
+    [[ -n "$up_line" ]] && body+="\n(upower) ${up_line}"
 
-  [[ -n "$power_w" ]] && body+="Consumo: ${power_w} W\n"
-  [[ -n "$volt_v"  ]] && body+="Voltaggio: ${volt_v} V\n"
-  [[ -n "$curr_a"  ]] && body+="Corrente: ${curr_a} A\n"
-
-  [[ -n "$now_wh"  ]] && body+="Energia: ${now_wh} Wh\n"
-  [[ -n "$full_wh" ]] && body+="Full: ${full_wh} Wh\n"
-  [[ -n "$design_wh" ]] && body+="Design: ${design_wh} Wh\n"
-  [[ -n "$health_pct" ]] && body+="Health: ${health_pct}%\n"
-
-  [[ -n "$technology"   ]] && body+="Tecnologia: ${technology}\n"
-  [[ -n "$manufacturer" ]] && body+="Produttore: ${manufacturer}\n"
-  [[ -n "$model_name"   ]] && body+="Modello: ${model_name}\n"
-  [[ -n "$serial_number" ]] && body+="Seriale: ${serial_number}\n"
-
-  [[ -n "$tte" && "$tte" != "n/a" ]] && body+="Tempo a 0%: ${tte}\n"
-  [[ -n "$ttf" && "$ttf" != "n/a" ]] && body+="Tempo al 100%: ${ttf}\n"
-
-  [[ -n "$up_line" ]] && body+="\n(upower) ${up_line}"
-
-  notify-send "$BAT:" "$(printf "%b" "$body")"
+    notify-send "$BAT:" "$(printf "%b" "$body")"
 }
 
-# ============================================================
-# Stato colore + simbolo (output leggero)
-# ============================================================
+# --- LOGICA PRINCIPALE ---
 
-COLOR="#FFFFFF"
+read -r BAT_PERC < "$BAT_PATH/capacity"
+read -r BAT_STATUS < "$BAT_PATH/status"
+[[ "$BAT_PERC" =~ ^[0-9]+$ ]] || exit 0
+
+COLOR=$C_NORMAL
 PLUS=""
 
 case "$BAT_STATUS" in
-  Full)
-    COLOR="#C3E88D"
-    ;;
-  Charging)
-    COLOR="#F1FA8C"
-    PLUS="+"
-    ;;
-  *)
-    # Discharging / Not charging / Unknown -> considerali "non in carica"
-    if (( BAT_PERC <= LOW_PERC )); then
-      COLOR="#EF5350"
-    else
-      COLOR="#FFFFFF"
-    fi
-    ;;
+    Full)      COLOR=$C_FULL ;;
+    Charging)  COLOR=$C_CHARGING; PLUS="+" ;;
+    *)
+        if (( BAT_PERC <= LOW_PERC )); then COLOR=$C_LOW; else COLOR=$C_NORMAL; fi
+        ;;
 esac
 
-# ============================================================
-# Notifiche low/critical (solo se NON in carica)
-# ============================================================
-
+# Notifiche Automatiche
 if [[ "$BAT_STATUS" != "Charging" && "$BAT_STATUS" != "Full" ]]; then
-  if (( BAT_PERC <= CRIT_PERC )); then
-    notify_low_battery "Critica"
-  elif (( BAT_PERC <= LOW_PERC )); then
-    notify_low_battery "Bassa"
-  fi
+    if (( BAT_PERC <= CRIT_PERC )); then notify_low_battery "Critica"
+    elif (( BAT_PERC <= LOW_PERC )); then notify_low_battery "Bassa"
+    fi
 fi
 
-# ============================================================
-# Output i3blocks + azioni click
-# ============================================================
-
-echo "BAT [${PLUS}${BAT_PERC}%]"
-echo ""
-echo "$COLOR"
-
+# Azione Click
 case "${BLOCK_BUTTON:-}" in
-  3) notify_detailed ;;
+    3) notify_detailed ;;
 esac
 
+# --- OUTPUT I3BLOCKS ---
+echo "BAT [${PLUS}${BAT_PERC}%]"
+echo "${PLUS}${BAT_PERC}%"
+echo "$COLOR"

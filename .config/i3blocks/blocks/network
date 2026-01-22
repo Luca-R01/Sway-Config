@@ -1,99 +1,129 @@
 #!/usr/bin/env bash
 set -u
 
-# --- Helpers ---
+# =========================================================
+# SCRIPT: network-monitor.sh
+# DESCRIZIONE: Monitoraggio interfacce (LAN, WiFi, VPN)
+#              - Rileva automaticamente l'interfaccia di default (*)
+#              - Click sinistro: apre nmtui nel terminale
+#              - Click destro: notifica dettagliata (IP, SSID, VPN)
+# DIPENDENZE: bash, iproute2, iw (per wifi), libnotify, nmtui
+# =========================================================
+
+# --- CONFIGURAZIONE ---
+COLOR_ON="#C3E88D"     # Verde (Connesso)
+COLOR_OFF="#EF5350"    # Rosso (Offline/No Internet)
+COLOR_WARN="#F1FA8C"   # Giallo (Potenziale problema)
+
+# --- HELPERS (Utility di rete) ---
+
+# Verifica se l'interfaccia è amministrativamente UP (utile per VPN/WG)
 is_admin_up() {
-  # tun0/wg0 spesso hanno operstate=unknown ma flag UP: questo li prende
-  ip -o link show dev "$1" 2>/dev/null | grep -q '<[^>]*UP[^>]*>'
+    ip -o link show dev "$1" 2>/dev/null | grep -q '<[^>]*UP[^>]*>'
 }
 
-has_carrier() { [[ -r "/sys/class/net/$1/carrier" ]] && [[ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" == "1" ]]; }
+# Verifica la presenza del segnale fisico (carrier)
+has_carrier() { 
+    [[ -r "/sys/class/net/$1/carrier" ]] && [[ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" == "1" ]]
+}
+
+# Identifica se l'interfaccia è wireless
 is_wifi() { [[ -d "/sys/class/net/$1/wireless" ]]; }
 
+# Estrazione dati (SSID, IPv4, IPv6)
 get_ssid() { iw dev "$1" link 2>/dev/null | awk -F': ' '/SSID/ {print $2; exit}'; }
 get_ipv4() { ip -o -4 addr show dev "$1" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1; }
 get_ipv6() { ip -o -6 addr show dev "$1" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -v '^fe80:' | head -n1; }
 
+# Trova l'interfaccia di default per internet
 default_dev() {
-  ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
+    ip -o route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}'
 }
 
+# Lancia NetworkManager TUI nel terminale di sistema
 launch_nm() {
-  if command -v xdg-terminal-exec >/dev/null 2>&1; then
-    xdg-terminal-exec --title="nmtui-terminal" -- nmtui
-  else
-    (nmtui >/dev/null 2>&1 </dev/null &)
-  fi
+    if command -v xdg-terminal-exec >/dev/null 2>&1; then
+        xdg-terminal-exec --title="nmtui-terminal" -- nmtui
+    else
+        (nmtui >/dev/null 2>&1 </dev/null &)
+    fi
 }
 
-# --- Click actions (sinistro) ---
-case "${BLOCK_BUTTON:-}" in
-  1) (launch_nm >/dev/null 2>&1 </dev/null &) ;;
-esac
+# --- LOGICA DI RILEVAMENTO ---
 
 DEF_DEV="$(default_dev || true)"
-
-# --- Trova interfacce attive ---
 ACTIVE=()
+
+# Scansione interfacce disponibili
 for IF in $(ls /sys/class/net 2>/dev/null); do
-  [[ "$IF" == "lo" ]] && continue
-  is_admin_up "$IF" || continue
+    [[ "$IF" == "lo" ]] && continue
+    is_admin_up "$IF" || continue
 
-  IPV4="$(get_ipv4 "$IF")"
-  IPV6="$(get_ipv6 "$IF")"
+    IPV4="$(get_ipv4 "$IF")"
+    IPV6="$(get_ipv6 "$IF")"
 
-  if is_wifi "$IF"; then
-    SSID="$(get_ssid "$IF")"
-    # wifi attivo se associato o ha IP
-    [[ -n "${SSID:-}" || -n "${IPV4:-}" || -n "${IPV6:-}" ]] && ACTIVE+=("$IF")
-  else
-    # wired/tunnel attivi se carrier=1 oppure ha IP (tun0/wg0 rientrano qui)
-    [[ "$(has_carrier "$IF" && echo 1 || echo 0)" == "1" || -n "${IPV4:-}" || -n "${IPV6:-}" ]] && ACTIVE+=("$IF")
-  fi
+    if is_wifi "$IF"; then
+        SSID="$(get_ssid "$IF")"
+        [[ -n "${SSID:-}" || -n "${IPV4:-}" || -n "${IPV6:-}" ]] && ACTIVE+=("$IF")
+    else
+        # Wired/VPN: attive se hanno carrier o hanno un IP assegnato
+        if has_carrier "$IF" || [[ -n "${IPV4:-}" || -n "${IPV6:-}" ]]; then
+            ACTIVE+=("$IF")
+        fi
+    fi
 done
 
-# --- Right click notify (info importanti) ---
-if [[ "${BLOCK_BUTTON:-}" == "3" ]]; then
-  if ((${#ACTIVE[@]} == 0)); then
-    notify-send "Rete" "Offline"
-  else
-    MSG="Default: ${DEF_DEV:-<none>}"
-    for IF in "${ACTIVE[@]}"; do
-      IPV4="$(get_ipv4 "$IF")"
-      IPV6="$(get_ipv6 "$IF")"
-      if is_wifi "$IF"; then
-        SSID="$(get_ssid "$IF")"
-        MSG+=$'\n\n'"$IF (wifi): ${SSID:-<no ssid>}"$'\n'"IPv4: ${IPV4:-<none>}  IPv6: ${IPV6:-<none>}"
-      else
-        # se è tunnel tipico, etichettalo
-        TYPE="wired"
-        [[ "$IF" =~ ^(tun|tap|wg|vpn)[0-9]+$ ]] && TYPE="vpn"
-        MSG+=$'\n\n'"$IF (${TYPE}):"$'\n'"IPv4: ${IPV4:-<none>}  IPv6: ${IPV6:-<none>}"
-      fi
-    done
-    notify-send "Rete" "$MSG"
-  fi
-fi
+# --- AZIONI (Click) ---
 
-# --- Output i3blocks ---
+case "${BLOCK_BUTTON:-0}" in
+    1) # Click Sinistro: Gestione connessioni
+        (launch_nm >/dev/null 2>&1 </dev/null &) 
+        ;;
+    3) # Click Destro: Notifica dettagliata
+        if ((${#ACTIVE[@]} == 0)); then
+            notify-send "Rete" "Stato: Offline"
+        else
+            MSG="Default Route: ${DEF_DEV:-<nessuna>}"
+            for IF in "${ACTIVE[@]}"; do
+                I4="$(get_ipv4 "$IF")"
+                I6="$(get_ipv6 "$IF")"
+                if is_wifi "$IF"; then
+                    SSID="$(get_ssid "$IF")"
+                    MSG+=$'\n\n'"$IF (WiFi): ${SSID:-<nessun SSID>}"$'\n'"IPv4: ${I4:- -}  IPv6: ${I6:- -}"
+                else
+                    TYPE="Ethernet"
+                    [[ "$IF" =~ ^(tun|tap|wg|vpn)[0-9]+$ ]] && TYPE="VPN"
+                    MSG+=$'\n\n'"$IF ($TYPE):"$'\n'"IPv4: ${I4:- -}  IPv6: ${I6:- -}"
+                fi
+            done
+            notify-send "Rete" "$MSG"
+        fi
+        ;;
+esac
+
+# --- OUTPUT I3BLOCKS ---
+
 if ((${#ACTIVE[@]} == 0)); then
-  echo "NET [OFF]"
-  echo ""
-  echo "#EF5350"
+    echo "NET [OFF]"
+    echo "OFF"
+    echo "$COLOR_OFF"
 elif [[ -z "${DEF_DEV:-}" ]]; then
-  # interfacce attive ma niente default route => "no internet"
-  echo "NET [${ACTIVE[*]}]"
-  echo ""
-  echo "#EF5350"
+    # Interfacce attive ma manca la rotta predefinita (es. LAN senza internet)
+    echo "NET [${ACTIVE[*]}]"
+    echo "NO_GW"
+    echo "$COLOR_OFF"
 else
-  # evidenzia la default route con *
-  for i in "${!ACTIVE[@]}"; do
-    [[ "${ACTIVE[$i]}" == "$DEF_DEV" ]] && ACTIVE[$i]="${ACTIVE[$i]}*"
-  done
+    # Evidenzia l'interfaccia principale con un asterisco
+    DISPLAY_LIST=()
+    for IF in "${ACTIVE[@]}"; do
+        if [[ "$IF" == "$DEF_DEV" ]]; then
+            DISPLAY_LIST+=("${IF}*")
+        else
+            DISPLAY_LIST+=("$IF")
+        fi
+    done
 
-  echo "NET [${ACTIVE[*]}]"
-  echo ""
-  echo "#C3E88D"
+    echo "NET [${DISPLAY_LIST[*]}]"
+    echo "${DISPLAY_LIST[*]}"
+    echo "$COLOR_ON"
 fi
-
-

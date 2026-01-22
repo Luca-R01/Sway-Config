@@ -1,35 +1,52 @@
 #!/usr/bin/env bash
 set -u
 
-SRC='@DEFAULT_SOURCE@'
+# =========================================================
+# SCRIPT: mic-manager.sh
+# DESCRIZIONE: Gestione del microfono (Sorgente Audio) via pactl
+#              - Click sinistro: Mute/Unmute toggle
+#              - Rotella su/giù: Volume +/- 5%
+# DIPENDENZE: bash, pulseaudio-utils (pactl), alsa-utils
+# =========================================================
 
-# Azioni PRIMA dell'output (evita aggiornamento in ritardo)
-case "${BLOCK_BUTTON:-}" in
-  1) pactl set-source-mute "$SRC" toggle ;;     # click sinistro: mute
-  4) pactl set-source-volume "$SRC" +5% ;;      # scroll up: volume +
-  5) pactl set-source-volume "$SRC" -5% ;;      # scroll down: volume -
+# --- CONFIGURAZIONE ---
+SRC='@DEFAULT_SOURCE@'
+VOL_STEP="5%"
+
+COLOR_ON="#FFFFFF"
+COLOR_MUTE="#EF5350"
+
+# --- AZIONI (Click e Scroll) ---
+case "${BLOCK_BUTTON:-0}" in
+    1) pactl set-source-mute "$SRC" toggle ;;
+    4) pactl set-source-volume "$SRC" +"$VOL_STEP" ;;
+    5) pactl set-source-volume "$SRC" -"$VOL_STEP" ;;
 esac
 
-# Stato mute
+# --- LOGICA DI RILEVAMENTO ---
+
+# Stato Mute (yes/no)
 MIC_MUTE=$(pactl get-source-mute "$SRC" 2>/dev/null | awk '{print $2}' | head -n1)
 
-# Volume: prendo la percentuale del primo canale (es. "55%")
-MIC_PERC=$(pactl get-source-volume "$SRC" 2>/dev/null \
-  | sed -n 's/.* \([0-9]\+%\).*/\1/p' | head -n1)
+# Volume (estrae la prima percentuale trovata, es: 55%)
+MIC_PERC=$(pactl get-source-volume "$SRC" 2>/dev/null | grep -oP '\d+(?=%)' | head -n1)
 
-# Fallback se pactl non risponde
-[[ -z "${MIC_PERC:-}" ]] && MIC_PERC="0%"
+# Fallback se i dati sono mancanti
+[[ -z "${MIC_PERC:-}" ]] && MIC_PERC="0"
+
+# --- DETERMINAZIONE OUTPUT ---
 
 if [[ "${MIC_MUTE:-yes}" == "no" ]]; then
-  COLOR="#FFFFFF"
-  OUT="MIC [${MIC_PERC}]"
+    COLOR="$COLOR_ON"
+    TEXT="MIC [${MIC_PERC}%]"
+    SHORT="${MIC_PERC}%"
 else
-  COLOR="#EF5350"
-  OUT="MIC [MUTE]"
+    COLOR="$COLOR_MUTE"
+    TEXT="MIC [MUTE]"
+    SHORT="MUT"
 fi
 
-# i3blocks output
-echo "$OUT"
-echo ""
-echo "$COLOR"
-
+# --- OUTPUT I3BLOCKS ---
+echo "$TEXT"    # Full text
+echo "$SHORT"   # Short text
+echo "$COLOR"   # Color

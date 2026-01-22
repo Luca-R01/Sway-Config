@@ -1,58 +1,81 @@
 #!/usr/bin/env bash
 set -u
 
+# =========================================================
+# SCRIPT: color-temp-manager.sh
+# DESCRIZIONE: Controllo temperatura colore tramite Gammastep
+#              - Toggle tra modalità "Warm" e "Normal"
+#              - Click sinistro: cambia modalità
+#              - Auto-start: assicura che gammastep sia attivo
+# DIPENDENZE: bash, gammastep, pgrep, pkill
+# =========================================================
+
+# --- CONFIGURAZIONE ---
 WARM_K=3000
 NORM_K=6500
+
+COLOR_WARM="#FFD6A3"
+COLOR_NORM="#FFFFFF"
 
 STATE_FILE="/tmp/i3blocks-gammastep.state"
 PID_NAME="gammastep"
 
-start_gammastep() {
-  local k="$1"
-  # riavvia pulito
-  pkill -x "$PID_NAME" >/dev/null 2>&1 || true
-  sleep 0.2
-  gammastep -P -O "$k" >/dev/null 2>&1 &
+# --- HELPERS ---
+
+# Funzione per avviare gammastep con una temperatura specifica
+apply_temp() {
+    local k="$1"
+    # Uccide processi esistenti per evitare conflitti
+    pkill -x "$PID_NAME" >/dev/null 2>&1 || true
+    sleep 0.2
+    # -P: non resettare i parametri esistenti, -O: one-shot manual temperature
+    gammastep -P -O "$k" >/dev/null 2>&1 &
 }
 
-# Stato desiderato (warm/norm). Default: norm
+# --- LOGICA DI STATO ---
+
+# Caricamento stato precedente (default: norm)
 MODE="norm"
 [[ -r "$STATE_FILE" ]] && read -r MODE < "$STATE_FILE" || true
 [[ "$MODE" != "warm" && "$MODE" != "norm" ]] && MODE="norm"
 
-# Click sinistro: toggle modalità
+# --- AZIONI (Click) ---
+
 if [[ "${BLOCK_BUTTON:-0}" -eq 1 ]]; then
-  if [[ "$MODE" == "warm" ]]; then
-    MODE="norm"
-  else
-    MODE="warm"
-  fi
-  printf '%s\n' "$MODE" > "$STATE_FILE"
-  # Applica subito la modalità scelta
-  if [[ "$MODE" == "warm" ]]; then
-    start_gammastep "$WARM_K"
-  else
-    start_gammastep "$NORM_K"
-  fi
+    # Toggle modalità
+    if [[ "$MODE" == "warm" ]]; then
+        MODE="norm"
+    else
+        MODE="warm"
+    fi
+    
+    # Persistenza stato
+    printf '%s\n' "$MODE" > "$STATE_FILE"
+    
+    # Applicazione immediata
+    [[ "$MODE" == "warm" ]] && apply_temp "$WARM_K" || apply_temp "$NORM_K"
 fi
 
-# Assicura che gammastep sia sempre attivo (anche dopo reboot/crash)
+# --- GUARDIAN (Persistenza processo) ---
+
+# Se gammastep è crashato o non è mai partito, lo avviamo
 if ! pgrep -x "$PID_NAME" >/dev/null 2>&1; then
-  if [[ "$MODE" == "warm" ]]; then
-    start_gammastep "$WARM_K"
-  else
-    start_gammastep "$NORM_K"
-  fi
+    [[ "$MODE" == "warm" ]] && apply_temp "$WARM_K" || apply_temp "$NORM_K"
 fi
 
-# Output i3blocks (senza icone)
+# --- DETERMINAZIONE OUTPUT ---
+
 if [[ "$MODE" == "warm" ]]; then
-  echo "CT [${WARM_K}K]"
-  echo ""
-  echo "#FFD6A3"
+    TEXT="CT [${WARM_K}K]"
+    SHORT="${WARM_K}K"
+    COLOR="$COLOR_WARM"
 else
-  echo "CT [${NORM_K}K]"
-  echo ""
-  echo "#FFFFFF"
+    TEXT="CT [${NORM_K}K]"
+    SHORT="${NORM_K}K"
+    COLOR="$COLOR_NORM"
 fi
 
+# --- OUTPUT I3BLOCKS ---
+echo "$TEXT"    # Full text
+echo "$SHORT"   # Short text
+echo "$COLOR"   # Color
