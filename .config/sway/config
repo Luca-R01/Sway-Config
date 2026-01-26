@@ -50,6 +50,9 @@ set $WALLPAPER /usr/share/backgrounds/archlinux/geolanes.png
 exec_always systemctl --user import-environment $(env | cut -d= -f1)
 exec_always dbus-update-activation-environment --systemd --all
 
+# Blocca automaticamente (Utile con autologin)
+exec '$LOCK'
+
 # Cursore
 seat seat0 xcursor_theme $CURSOR_THEME $CURSOR_SIZE
 

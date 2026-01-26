@@ -24,15 +24,14 @@ line-wrong-color=bf616a
 text-wrong-color=FFFFFF
 text-caps-lock-color=FFFFFF
 indicator-radius=100
-font=Terminus
-image=/usr/share/backgrounds/archlinux/geolanes.png 
+font=monospace
+image=$HOME/.config/sway/lock.jpg
 show-keyboard-layout
 show-failed-attempts
 daemonize
 
+# Swaylock effects
 clock
 indicator
 datestr=%a %d %b %Y
 timestr=%H:%M
-#screenshots
-effect-blur=7x5
